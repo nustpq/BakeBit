@@ -34,58 +34,55 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 '''
 
+import time, os, sys, subprocess, threading, signal, socket
 import bakebit_128_64_oled as oled
-from PIL import Image
-from PIL import ImageFont
-from PIL import ImageDraw
-import time
-import sys
-import subprocess
-import threading
-import signal
-import os
-import socket
+from PIL import Image, ImageFont, ImageDraw
 
-global width
+PAGE_0_TIME         = 0
+PAGE_1_OS_INFO      = 1
+PAGE_3_PWR_CANCEL   = 3
+PAGE_4_PWR_OFF      = 4
+PAGE_5_PWR_REBOOT   = 5
+PAGE_6_PWR_OFF_S    = 6
+PAGE_7_PWR_REBOOT_S = 7
+PAGE_8_PHOTO        = 8
+
+SCREEN_MODE_NORMAL  = 0
+SCREEN_MODE_SAVE    = 1
+SCREEN_MODE_OFF     = 2
+SCREEN_MODE_WAKEUP  = 3
+
+TIMEOUT_PHOTO_NEXT  = 5   #time in sec for Photo change 
+TIMEOUT_PWR_MENU    = 30  #time in sec to exit power setting menu
+TIMEOUT_SCREEN_SAVE = 3600  #time in sec to enter screen saver if no KEY signal
+TIMEOUT_SCREEN_OFF  = 3600+60 #time in sec to turn off screen if no KEY signal
+TIMEOUT_TIME_OFF    = 5   #time in sec turn off screen after time wakeup  
+
+t0 = time.time() #last KEY signal start time
+t1 = time.time() #photo show start time
+t2 = time.time() #time wakeup start time
+
 width=128
-global height
 height=64
-
-global pageCount
 pageCount=2
-global pageIndex
-pageIndex=0
-global showPageIndicator
+pageIndex=PAGE_0_TIME
 showPageIndicator= False
+screen_mode = SCREEN_MODE_NORMAL  
+drawing = False
+image = Image.new('1', (width, height))
+draw = ImageDraw.Draw(image)
+fontb24 = ImageFont.truetype('DejaVuSansMono-Bold.ttf', 24);
+font14 = ImageFont.truetype('DejaVuSansMono.ttf', 14);
+smartFont = ImageFont.truetype('DejaVuSansMono-Bold.ttf', 10);
+fontb14 = ImageFont.truetype('DejaVuSansMono-Bold.ttf', 14);
+font11 = ImageFont.truetype('DejaVuSansMono.ttf', 11);
+lock = threading.Lock()
+img_idx = 0
 
+print( 'NanoHat OLED Init' ) 
 oled.init()  #initialze SEEED OLED display
 oled.setNormalDisplay()      #Set display to normal mode (i.e non-inverse mode)
 oled.setHorizontalMode()
-
-global drawing 
-drawing = False
-
-global image
-image = Image.new('1', (width, height))
-global draw
-draw = ImageDraw.Draw(image)
-global fontb24
-fontb24 = ImageFont.truetype('DejaVuSansMono-Bold.ttf', 24);
-global font14 
-font14 = ImageFont.truetype('DejaVuSansMono.ttf', 14);
-global smartFont
-smartFont = ImageFont.truetype('DejaVuSansMono-Bold.ttf', 10);
-global fontb14
-fontb14 = ImageFont.truetype('DejaVuSansMono-Bold.ttf', 14);
-global font11
-font11 = ImageFont.truetype('DejaVuSansMono.ttf', 11);
-
-global lock
-lock = threading.Lock()
-global img_idx
-img_idx = 0
-global t0
-t0 = time.time()
 
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -144,7 +141,7 @@ def draw_page():
                 draw.rectangle((dotX, dotTop, dotX+dotWidth, dotTop+dotWidth), outline=255, fill=0)
             dotTop=dotTop+dotWidth+dotPadding
 
-    if page_index==0: # Time info
+    if page_index==PAGE_0_TIME: # Time info
         # text = time.strftime("%A")
         # draw.text((2,2),text,font=font14,fill=255)
         # text = time.strftime("%e %b %Y")
@@ -167,7 +164,7 @@ def draw_page():
         #draw.rectangle((2,20,width,35), outline=1, fill=0)
         draw.text((2,50),text,font=font11,fill=255)
         
-    elif page_index==1: # OS info
+    elif page_index==PAGE_1_OS_INFO: # OS info
         # Draw some shapes.
         # First define some constants to allow easy resizing of shapes.
         padding = 2
@@ -193,7 +190,7 @@ def draw_page():
         draw.text((x, top+5+36),    str(Disk),  font=smartFont, fill=255)
         draw.text((x, top+5+48),    tempStr,  font=smartFont, fill=255)
     
-    elif page_index==3: #shutdown -- cancel
+    elif page_index==PAGE_3_PWR_CANCEL: #shutdown -- cancel
         draw.text((2, 2),  'Shutdown?',  font=fontb14, fill=255)
 
         draw.rectangle((2,20,width-4,20+16), outline=0, fill=255)
@@ -202,7 +199,7 @@ def draw_page():
         draw.rectangle((2,38,width-4,38+16), outline=0, fill=0)
         draw.text((4, 40),  'power off',  font=font11, fill=255)
 
-    elif page_index==4: #shutdown -- power off
+    elif page_index==PAGE_4_PWR_OFF: #shutdown -- power off
         draw.text((2, 2),  'Shutdown?',  font=fontb14, fill=255)
 
         draw.rectangle((2,20,width-4,20+16), outline=0, fill=0)
@@ -211,7 +208,7 @@ def draw_page():
         draw.rectangle((2,38,width-4,38+16), outline=0, fill=255)
         draw.text((4, 40),  'Power off',  font=font11, fill=0)
     
-    elif page_index==5: #shutdown -- power off
+    elif page_index==PAGE_5_PWR_REBOOT: #shutdown -- power off
         draw.text((2, 2),  'Shutdown?',  font=fontb14, fill=255)
 
         draw.rectangle((2,20,width-4,20+16), outline=0, fill=0)
@@ -220,15 +217,15 @@ def draw_page():
         draw.rectangle((2,38,width-4,38+16), outline=0, fill=255)
         draw.text((4, 40),  'Reboot',  font=font11, fill=0)
         
-    elif page_index==6: #poweroff
+    elif page_index==PAGE_6_PWR_OFF_S: #poweroff
         draw.text((2, 2),  'Powering off',  font=fontb14, fill=255)
         draw.text((2, 40),  'Please wait',  font=font11, fill=255)
         
-    elif page_index==7: #rebpoot
+    elif page_index==PAGE_7_PWR_REBOOT_S: #rebpoot
         draw.text((2, 2),  'Rebooting',  font=fontb14, fill=255)
         draw.text((2, 40),  'Please wait',  font=font11, fill=255)
 
-    if page_index==8: #photo
+    if page_index==PAGE_8_PHOTO: #photo
         oled.drawImage(imgList[img_idx])
     else:   
         oled.drawImage(image)
@@ -243,7 +240,7 @@ def is_showing_power_msgbox():
     lock.acquire()
     page_index = pageIndex
     lock.release()
-    if page_index==3 or page_index==4 or page_index==5:
+    if page_index==PAGE_3_PWR_CANCEL or page_index==PAGE_4_PWR_OFF or page_index==PAGE_5_PWR_REBOOT:
         return True
     return False
 
@@ -252,15 +249,15 @@ def is_showing_photo():
     lock.acquire()
     page_index = pageIndex
     lock.release()
-    if page_index==8:
+    if page_index==PAGE_8_PHOTO:
         return True
     return False
 
 def next_photo():
-    global t0
+    global t1
     global img_idx 
-    print 'Next photo' 
-    t0 = time.time()   
+    print( 'Next photo' ) 
+    t1 = time.time()   
     img_idx = (img_idx + 1) % len(imgList)
 
 def update_page_index(pi):
@@ -268,59 +265,106 @@ def update_page_index(pi):
     lock.acquire()
     pageIndex = pi
     lock.release()
-    print 'PAGE['+str(pi)+']'
+    print( 'PAGE['+str(pi)+']' ) 
+
+def screen_save_check():
+    global screen_mode
+    if screen_mode == SCREEN_MODE_NORMAL:
+        if time.time()-t0 >= TIMEOUT_SCREEN_SAVE:  
+            update_page_index(PAGE_8_PHOTO)
+            screen_mode = SCREEN_MODE_SAVE
+            print( 'SCREEN_MODE_SAVE' ) 
+        
+def screen_off_check():
+    global screen_mode
+    if screen_mode == SCREEN_MODE_SAVE:
+        if time.time()-t0 < TIMEOUT_SCREEN_OFF:
+            return
+    elif screen_mode == SCREEN_MODE_WAKEUP:
+        if time.time()-t2 < TIMEOUT_TIME_OFF:
+            return   
+    else:
+        return      
+    update_page_index(PAGE_0_TIME)
+    oled.clearDisplay() 
+    screen_mode = SCREEN_MODE_OFF
+    print( 'SCREEN_MODE_OFF' ) 
+    
+
+def time_wakeup_check():
+    global t2
+    global screen_mode
+    if screen_mode == SCREEN_MODE_OFF :
+        tt = time.strftime("%X")
+        hh  = tt.split(":")[0]
+        min = tt.split(":")[1]
+        sec = tt.split(":")[2]
+        if (hh>='08' and hh<='20') and (min=='00' or min=='30') and (sec=='00') :
+            update_page_index(PAGE_0_TIME)
+            t2 = time.time()
+            screen_mode = SCREEN_MODE_WAKEUP
+            print( 'SCREEN_MODE_WAKEUP 0' )
+        if (hh>='08' and hh<='20') and (min=='15' or min=='45') and (sec=='00') :
+            update_page_index(PAGE_1_OS_INFO)
+            t2 = time.time()
+            screen_mode = SCREEN_MODE_WAKEUP
+            print( 'SCREEN_MODE_WAKEUP 1' )
 
 def receive_signal(signum, stack):
     global pageIndex
     global t0
+    global screen_mode
     
     lock.acquire()
     page_index = pageIndex
     lock.release()
 
-    if page_index==6 or page_index==7: #shutdown
+    if page_index==PAGE_6_PWR_OFF_S or page_index==PAGE_7_PWR_REBOOT_S: #shuting down
         return
     
     t0 = time.time() 
+    screen_mode = SCREEN_MODE_NORMAL
+    print( 'SCREEN_MODE_NORMAL' ) 
+    
     if signum == signal.SIGUSR1:
-        print 'K1 pressed'
+        print( 'K1 pressed' ) 
         if is_showing_power_msgbox():
-            if page_index==3:
-                update_page_index(4)
-            elif page_index==4:
-                update_page_index(5)
+            if page_index==PAGE_3_PWR_CANCEL:
+                update_page_index(PAGE_4_PWR_OFF)
+            elif page_index==PAGE_4_PWR_OFF:
+                update_page_index(PAGE_5_PWR_REBOOT)
             else:
-                update_page_index(3)
-        elif page_index==0:
-            print 'Start photo'
-            update_page_index(8)
-        elif page_index==8:            
+                update_page_index(PAGE_3_PWR_CANCEL)
+        elif page_index==PAGE_0_TIME:
+            print( 'Start photo' ) 
+            update_page_index(PAGE_8_PHOTO)
+        elif page_index==PAGE_8_PHOTO:            
             next_photo() 
         else:
-            update_page_index(0)
+            update_page_index(PAGE_0_TIME)
 
     elif signum == signal.SIGUSR2:
-        print 'K2 pressed'
+        print( 'K2 pressed' ) 
         if is_showing_power_msgbox():
-            if page_index==4:
-                update_page_index(6)
-            elif page_index==5:
-                update_page_index(7)
+            if page_index==PAGE_4_PWR_OFF:
+                update_page_index(PAGE_6_PWR_OFF_S)
+            elif page_index==PAGE_5_PWR_REBOOT:
+                update_page_index(PAGE_7_PWR_REBOOT_S)
             else:
-                update_page_index(0)
+                update_page_index(PAGE_0_TIME)
         else:
             update_page_index(1)
 
     elif signum == signal.SIGALRM:
-        print 'K3 pressed'
+        print( 'K3 pressed' ) 
         if is_showing_power_msgbox():
-            update_page_index(0)
+            update_page_index(PAGE_0_TIME)
         else:                   
-            update_page_index(3)
+            update_page_index(PAGE_3_PWR_CANCEL)
     
     elif signum == signal.SIGTERM:
-        print 'Task kill'                   
-        update_page_index(6)
+        print( 'Task kill' )                
+        update_page_index(PAGE_6_PWR_OFF_S)
         draw_page()
         os._exit(0)
         
@@ -348,44 +392,50 @@ while True:
         lock.acquire()
         page_index = pageIndex
         lock.release()
-        
-        if page_index==0 or page_index==1:
-            draw_page()         
-
-        if page_index==6 or page_index==7: # shutdown clean up
-            print 'process shutdown...'
-            time.sleep(2)
-            while True:
-                lock.acquire()
-                is_drawing = drawing
-                lock.release()
-                if not is_drawing:
-                    lock.acquire()
-                    drawing = True
-                    lock.release()
-                    oled.clearDisplay()
-                    break
-                else:
-                    time.sleep(.1)
-                    continue
-            time.sleep(1)
-            if page_index==6:
-                print 'execute poweroff'
-                os.system('systemctl poweroff')
-            else:
-                print 'execute reboot'
-                os.system('systemctl reboot')
-            break
-        
-        if page_index==8: # photo auto play by 5s
-            if time.time()-t0 >= 5:
-               next_photo()  
-               draw_page()
-        elif is_showing_power_msgbox():
-            if time.time()-t0 >= 30:
-               update_page_index(0) 
-               draw_page()
             
+        screen_save_check()
+        screen_off_check()
+        time_wakeup_check()
+        
+        if screen_mode != SCREEN_MODE_OFF:  
+            if page_index==PAGE_0_TIME or page_index==PAGE_1_OS_INFO:
+                draw_page() 
+
+            if page_index==PAGE_6_PWR_OFF_S or page_index==PAGE_7_PWR_REBOOT_S: # shutdown clean up
+                print( 'process shutdown...' ) 
+                time.sleep(2)
+                while True:
+                    lock.acquire()
+                    is_drawing = drawing
+                    lock.release()
+                    if not is_drawing:
+                        lock.acquire()
+                        drawing = True
+                        lock.release()
+                        oled.clearDisplay()
+                        break
+                    else:
+                        time.sleep(0.1)
+                        continue
+                time.sleep(1)
+                if page_index==PAGE_6_PWR_OFF_S:
+                    print( 'execute poweroff' ) 
+                    os.system('systemctl poweroff')
+                else:
+                    print( 'execute reboot' ) 
+                    os.system('systemctl reboot')
+                break
+            
+            if page_index==PAGE_8_PHOTO: # photo auto play by 5s
+                if time.time()-t1 >= TIMEOUT_PHOTO_NEXT:
+                    next_photo()  
+                    draw_page()                             
+                
+            if is_showing_power_msgbox():
+                if time.time()-t0 >= TIMEOUT_PWR_MENU:
+                    update_page_index(PAGE_0_TIME) 
+                    draw_page()
+           
         time.sleep(1)
     except KeyboardInterrupt:                                                                                                          
         break                     

@@ -319,7 +319,13 @@ def clearDisplay():
 			putChar(' ')
 	sendCommand(SeeedOLED_Display_On_Cmd)    #display on
 	setTextXY(0,0)
-
+ 
+def clear_raw():
+    for j in range(8):
+        setTextXY(0,j)    
+        for i in range(16):  #clear all columns
+            putChar(' ') 
+ 
 def putChar(C):
 	C_add=ord(C)
 	if C_add<32 or C_add>127:     # Ignore non-printable ASCII characters
