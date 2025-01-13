@@ -55,8 +55,8 @@ SCREEN_MODE_WAKEUP  = 3
 TIMEOUT_PHOTO_NEXT  = 5   #time in sec for Photo change 
 TIMEOUT_PWR_MENU    = 30  #time in sec to exit power setting menu
 TIMEOUT_SCREEN_SAVE = 3600  #time in sec to enter screen saver if no KEY signal
-TIMEOUT_SCREEN_OFF  = 3600+60 #time in sec to turn off screen if no KEY signal
-TIMEOUT_TIME_OFF    = 5   #time in sec turn off screen after time wakeup  
+TIMEOUT_SCREEN_OFF  = 3660 #time in sec to turn off screen if no KEY signal
+TIMEOUT_TIME_OFF    = 10   #time in sec turn off screen after time wakeup  
 
 t0 = time.time() #last KEY signal start time
 t1 = time.time() #photo show start time
@@ -83,6 +83,7 @@ print( 'NanoHat OLED Init' )
 oled.init()  #initialze SEEED OLED display
 oled.setNormalDisplay()      #Set display to normal mode (i.e non-inverse mode)
 oled.setHorizontalMode()
+#oled.setBrightness(255) #0~255, this oled do not support
 
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -271,9 +272,9 @@ def screen_save_check():
     global screen_mode
     if screen_mode == SCREEN_MODE_NORMAL:
         if time.time()-t0 >= TIMEOUT_SCREEN_SAVE:  
-            update_page_index(PAGE_8_PHOTO)
             screen_mode = SCREEN_MODE_SAVE
             print( 'SCREEN_MODE_SAVE' ) 
+            update_page_index(PAGE_8_PHOTO)
         
 def screen_off_check():
     global screen_mode
@@ -284,31 +285,32 @@ def screen_off_check():
         if time.time()-t2 < TIMEOUT_TIME_OFF:
             return   
     else:
-        return      
-    update_page_index(PAGE_0_TIME)
+        return          
     oled.clearDisplay() 
     screen_mode = SCREEN_MODE_OFF
     print( 'SCREEN_MODE_OFF' ) 
+    update_page_index(PAGE_0_TIME)
     
 
 def time_wakeup_check():
     global t2
     global screen_mode
-    if screen_mode == SCREEN_MODE_OFF :
+    if screen_mode == SCREEN_MODE_OFF or screen_mode == SCREEN_MODE_WAKEUP:
         tt = time.strftime("%X")
         hh  = tt.split(":")[0]
         min = tt.split(":")[1]
         sec = tt.split(":")[2]
-        if (hh>='08' and hh<='20') and (min=='00' or min=='30') and (sec=='00') :
-            update_page_index(PAGE_0_TIME)
-            t2 = time.time()
-            screen_mode = SCREEN_MODE_WAKEUP
-            print( 'SCREEN_MODE_WAKEUP 0' )
-        if (hh>='08' and hh<='20') and (min=='15' or min=='45') and (sec=='00') :
-            update_page_index(PAGE_1_OS_INFO)
-            t2 = time.time()
-            screen_mode = SCREEN_MODE_WAKEUP
-            print( 'SCREEN_MODE_WAKEUP 1' )
+        if (hh>='08' and hh<='20') :
+            if screen_mode == SCREEN_MODE_OFF and (sec=='00') :
+                t2 = time.time()
+                screen_mode = SCREEN_MODE_WAKEUP
+                print( 'SCREEN_MODE_WAKEUP 0' )
+                update_page_index(PAGE_0_TIME)
+
+            if screen_mode == SCREEN_MODE_WAKEUP and (sec=='05') :
+                print( 'SCREEN_MODE_WAKEUP 1' )
+                update_page_index(PAGE_1_OS_INFO)
+                
 
 def receive_signal(signum, stack):
     global pageIndex
