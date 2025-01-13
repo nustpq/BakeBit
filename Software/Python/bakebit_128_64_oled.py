@@ -320,6 +320,12 @@ def clearDisplay():
 	sendCommand(SeeedOLED_Display_On_Cmd)    #display on
 	setTextXY(0,0)
  
+def setDisplayOff():
+    sendCommand(SeeedOLED_Display_Off_Cmd)
+    
+def setDisplayOn():
+    sendCommand(SeeedOLED_Display_On_Cmd)
+
 def clear_raw():
     for j in range(8):
         setTextXY(0,j)    

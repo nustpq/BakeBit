@@ -49,14 +49,17 @@ PAGE_8_PHOTO        = 8
 
 SCREEN_MODE_NORMAL  = 0
 SCREEN_MODE_SAVE    = 1
-SCREEN_MODE_OFF     = 2
+SCREEN_MODE_SLEEP   = 2
 SCREEN_MODE_WAKEUP  = 3
+SCREEN_MODE_WAKEUP2 = 4
+SCREEN_MODE_OFF     = 5
 
-TIMEOUT_PHOTO_NEXT  = 5   #time in sec for Photo change 
-TIMEOUT_PWR_MENU    = 30  #time in sec to exit power setting menu
-TIMEOUT_SCREEN_SAVE = 3600  #time in sec to enter screen saver if no KEY signal
-TIMEOUT_SCREEN_OFF  = 3660 #time in sec to turn off screen if no KEY signal
-TIMEOUT_TIME_OFF    = 10   #time in sec turn off screen after time wakeup  
+TIMEOUT_PHOTO_NEXT  = 5        #time in sec for Photo change 
+TIMEOUT_PWR_MENU    = 30       #time in sec to exit power setting menu
+TIMEOUT_SCREEN_SAVE = 60*30    #time in sec to enter screen saver if no KEY signal
+TIMEOUT_SCREEN_SLEEP= 60*35    #time in sec to sleep screen if no KEY signal
+TIMEOUT_SCREEN_OFF  = 60*60*24 #time in sec to turn off screen if no KEY signal
+TIMEOUT_TIME_OFF    = 10        #time in sec to sleep screen after wakeup screen wakeup by timer 
 
 t0 = time.time() #last KEY signal start time
 t1 = time.time() #photo show start time
@@ -83,8 +86,12 @@ print( 'NanoHat OLED Init' )
 oled.init()  #initialze SEEED OLED display
 oled.setNormalDisplay()      #Set display to normal mode (i.e non-inverse mode)
 oled.setHorizontalMode()
+oled.setDisplayOn() 
 #oled.setBrightness(255) #0~255, this oled do not support
 
+def printc( msg  ):
+    print(time.strftime("%X") + ' ' + msg)
+    
 def get_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -257,7 +264,7 @@ def is_showing_photo():
 def next_photo():
     global t1
     global img_idx 
-    print( 'Next photo' ) 
+    printc( 'Next photo' ) 
     t1 = time.time()   
     img_idx = (img_idx + 1) % len(imgList)
 
@@ -266,52 +273,66 @@ def update_page_index(pi):
     lock.acquire()
     pageIndex = pi
     lock.release()
-    print( 'PAGE['+str(pi)+']' ) 
+    printc( 'PAGE['+str(pi)+']' ) 
 
 def screen_save_check():
     global screen_mode
     if screen_mode == SCREEN_MODE_NORMAL:
         if time.time()-t0 >= TIMEOUT_SCREEN_SAVE:  
             screen_mode = SCREEN_MODE_SAVE
-            print( 'SCREEN_MODE_SAVE' ) 
+            printc( 'SCREEN_MODE_SAVE' ) 
             update_page_index(PAGE_8_PHOTO)
         
 def screen_off_check():
     global screen_mode
     if screen_mode == SCREEN_MODE_SAVE:
-        if time.time()-t0 < TIMEOUT_SCREEN_OFF:
+        if time.time()-t0 < TIMEOUT_SCREEN_SLEEP:
             return
-    elif screen_mode == SCREEN_MODE_WAKEUP:
+    elif screen_mode == SCREEN_MODE_WAKEUP2:
         if time.time()-t2 < TIMEOUT_TIME_OFF:
             return   
     else:
-        return          
-    oled.clearDisplay() 
-    screen_mode = SCREEN_MODE_OFF
-    print( 'SCREEN_MODE_OFF' ) 
+        return        
+    if time.time()-t0 < TIMEOUT_SCREEN_OFF:
+        screen_mode = SCREEN_MODE_SLEEP
+        printc( 'SCREEN_MODE_SLEEP' )
+    else:
+        screen_mode = SCREEN_MODE_OFF
+        printc( 'SCREEN_MODE_OFF' )
+    #oled.clearDisplay()
+    oled.setDisplayOff() 
     update_page_index(PAGE_0_TIME)
     
 
 def time_wakeup_check():
     global t2
     global screen_mode
-    if screen_mode == SCREEN_MODE_OFF or screen_mode == SCREEN_MODE_WAKEUP:
+    if screen_mode == SCREEN_MODE_SLEEP or screen_mode == SCREEN_MODE_WAKEUP:
         tt = time.strftime("%X")
         hh  = tt.split(":")[0]
         min = tt.split(":")[1]
         sec = tt.split(":")[2]
-        if (hh>='08' and hh<='20') :
-            if screen_mode == SCREEN_MODE_OFF and (sec=='00') :
-                t2 = time.time()
-                screen_mode = SCREEN_MODE_WAKEUP
-                print( 'SCREEN_MODE_WAKEUP 0' )
+        if (hh>='08' and hh<='18') :
+            if screen_mode == SCREEN_MODE_SLEEP and (sec=='00') :
+                t2 = time.time()               
+                #if int(min)&1==0:
+                if min == '00':
+                    printc( 'oled.setNormalDisplay' )
+                    oled.setNormalDisplay()
+                elif min == '30':
+                    printc( 'oled.setInverseDisplay' )
+                    oled.setInverseDisplay()
+                oled.setDisplayOn()                 
                 update_page_index(PAGE_0_TIME)
-
-            if screen_mode == SCREEN_MODE_WAKEUP and (sec=='05') :
-                print( 'SCREEN_MODE_WAKEUP 1' )
-                update_page_index(PAGE_1_OS_INFO)
+                screen_mode = SCREEN_MODE_WAKEUP
+                printc( 'SCREEN_MODE_WAKEUP' )
                 
-
+            elif screen_mode == SCREEN_MODE_WAKEUP and (sec=='05') :
+                update_page_index(PAGE_1_OS_INFO)
+                screen_mode = SCREEN_MODE_WAKEUP2 
+                printc( 'SCREEN_MODE_WAKEUP2' )
+                
+                
 def receive_signal(signum, stack):
     global pageIndex
     global t0
@@ -324,12 +345,16 @@ def receive_signal(signum, stack):
     if page_index==PAGE_6_PWR_OFF_S or page_index==PAGE_7_PWR_REBOOT_S: #shuting down
         return
     
-    t0 = time.time() 
-    screen_mode = SCREEN_MODE_NORMAL
-    print( 'SCREEN_MODE_NORMAL' ) 
+    t0 = time.time()
+    if screen_mode != SCREEN_MODE_NORMAL:
+        screen_mode = SCREEN_MODE_NORMAL
+        printc( 'SCREEN_MODE_NORMAL' ) 
+        oled.setNormalDisplay()
+        oled.setDisplayOn()  
+        printc( 'oled.setNormalDisplay' )
     
     if signum == signal.SIGUSR1:
-        print( 'K1 pressed' ) 
+        printc( 'K1 pressed' ) 
         if is_showing_power_msgbox():
             if page_index==PAGE_3_PWR_CANCEL:
                 update_page_index(PAGE_4_PWR_OFF)
@@ -338,7 +363,7 @@ def receive_signal(signum, stack):
             else:
                 update_page_index(PAGE_3_PWR_CANCEL)
         elif page_index==PAGE_0_TIME:
-            print( 'Start photo' ) 
+            printc( 'Start photo' ) 
             update_page_index(PAGE_8_PHOTO)
         elif page_index==PAGE_8_PHOTO:            
             next_photo() 
@@ -346,7 +371,7 @@ def receive_signal(signum, stack):
             update_page_index(PAGE_0_TIME)
 
     elif signum == signal.SIGUSR2:
-        print( 'K2 pressed' ) 
+        printc( 'K2 pressed' ) 
         if is_showing_power_msgbox():
             if page_index==PAGE_4_PWR_OFF:
                 update_page_index(PAGE_6_PWR_OFF_S)
@@ -358,14 +383,14 @@ def receive_signal(signum, stack):
             update_page_index(1)
 
     elif signum == signal.SIGALRM:
-        print( 'K3 pressed' ) 
+        printc( 'K3 pressed' ) 
         if is_showing_power_msgbox():
             update_page_index(PAGE_0_TIME)
         else:                   
             update_page_index(PAGE_3_PWR_CANCEL)
     
     elif signum == signal.SIGTERM:
-        print( 'Task kill' )                
+        printc( 'Task kill' )                
         update_page_index(PAGE_6_PWR_OFF_S)
         draw_page()
         os._exit(0)
@@ -399,12 +424,12 @@ while True:
         screen_off_check()
         time_wakeup_check()
         
-        if screen_mode != SCREEN_MODE_OFF:  
+        if not (screen_mode==SCREEN_MODE_SLEEP or screen_mode==SCREEN_MODE_OFF):  
             if page_index==PAGE_0_TIME or page_index==PAGE_1_OS_INFO:
                 draw_page() 
 
             if page_index==PAGE_6_PWR_OFF_S or page_index==PAGE_7_PWR_REBOOT_S: # shutdown clean up
-                print( 'process shutdown...' ) 
+                printc( 'process shutdown...' ) 
                 time.sleep(2)
                 while True:
                     lock.acquire()
@@ -421,10 +446,10 @@ while True:
                         continue
                 time.sleep(1)
                 if page_index==PAGE_6_PWR_OFF_S:
-                    print( 'execute poweroff' ) 
+                    printc( 'execute poweroff' ) 
                     os.system('systemctl poweroff')
                 else:
-                    print( 'execute reboot' ) 
+                    printc( 'execute reboot' ) 
                     os.system('systemctl reboot')
                 break
             
@@ -438,8 +463,9 @@ while True:
                     update_page_index(PAGE_0_TIME) 
                     draw_page()
            
-        time.sleep(1)
+        time.sleep(0.8)
+        
     except KeyboardInterrupt:                                                                                                          
         break                     
     except IOError:                                                                              
-        print ("Error")
+        printc ("Error")
