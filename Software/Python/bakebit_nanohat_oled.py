@@ -183,18 +183,20 @@ def draw_page():
         IPAddress = get_ip()
         cmd = "top -bn1 | grep load | awk '{printf \"CPU Load: %.2f\", $(NF-2)}'"
         CPU = subprocess.check_output(cmd, shell = True )
-        cmd = "free -m | awk 'NR==2{printf \"Mem: %s/%sMB %.2f%%\", $3,$2,$3*100/$2 }'"
-        MemUsage = subprocess.check_output(cmd, shell = True )
+        # cmd = "free -m | awk 'NR==2{printf \"Mem: %s/%sMB %.2f%%\", $3,$2,$3*100/$2 }'"
+        # MemUsage = subprocess.check_output(cmd, shell = True )
         cmd = "df -h | awk '$NF==\"/\"{printf \"Disk: %d/%dGB %s\", $3,$2,$5}'"
         Disk = subprocess.check_output(cmd, shell = True )
         tempI = int(open('/sys/class/thermal/thermal_zone0/temp').read());
         if tempI>1000:
             tempI = tempI/1000
         tempStr = "CPU TEMP: %sC" % str(tempI)
-
+        cmd = "awk '{print $1}' /var/log/nginx/access.log|sort | uniq -c |wc -l"
+        nginx =  subprocess.check_output(cmd, shell = True )
         draw.text((x, top+5),       "IP: " + str(IPAddress),  font=smartFont, fill=255)
         draw.text((x, top+5+12),    str(CPU), font=smartFont, fill=255)
-        draw.text((x, top+5+24),    str(MemUsage),  font=smartFont, fill=255)
+        #draw.text((x, top+5+24),    str(MemUsage),  font=smartFont, fill=255)
+        draw.text((x, top+5+24),    "Nginx: " + str(nginx),  font=smartFont, fill=255)
         draw.text((x, top+5+36),    str(Disk),  font=smartFont, fill=255)
         draw.text((x, top+5+48),    tempStr,  font=smartFont, fill=255)
     
